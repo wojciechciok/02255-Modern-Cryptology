@@ -1,63 +1,57 @@
-from typing import List
-import binascii
-
-from look_up_tables import S_BOX, KEY_SCHEDULER_LOOKUP_TABLE, xor, Word
+import numpy as np
+from constants import S
 
 
-def key_expension(key: bytes, rounds: int) -> List[Word]:
-    if len(key) != 16:
-        raise ValueError(f"Wrong key length: {len(key)}")
-    expended_key = [key[i: i + len(key) // 4] for i in range(0, len(key), 4)]
-    for r in range(1, rounds):
-        rot = _rot_word(expended_key[-1])
-        sub = _sub_word(rot)
-        xored = xor(sub, expended_key[-4])
-        first_column = xor(xored, _r_con(r))
-        expended_key.append(first_column)
-        for _ in range(3):
-            expended_key.append(xor(expended_key[-1], expended_key[-4]))
-    return expended_key
+class KeyScheduler:
+    def __init__(self, key):
+        self.keys = [key]
+        self.rc = []
 
+    def get_round_constant(self):
+        i = len(self.rc) + 1
+        if i == 1:
+            rc = 1
+        elif i > 1 and self.rc[i-2] < 0x80:
+            rc = 2*self.rc[i-2]
+        else:
+            rc = (2*self.rc[i-2]) ^ 0x11B
+        self.rc.append(rc)
+        return rc
 
-def get_first_key(key: bytes, rounds: int) -> bytes:
-    if len(key) != 16:
-        raise ValueError(f"Wrong key length: {len(key)}")
-    expended_key = [key[i: i + len(key) // 4] for i in range(0, len(key), 4)]
-    fully_expended_key = reverse_key_expension(expended_key, rounds)
-    return b"".join(fully_expended_key[:4])
+    def get_next_key(self):
+        latest_key = self.keys[-1]
+        key_length = len(latest_key)
+        k_length = int(key_length/4)
+        k0 = int(latest_key[0:k_length], 16)
+        k1 = int(latest_key[k_length:k_length*2], 16)
+        k2 = int(latest_key[k_length*2:k_length*3], 16)
+        k3 = latest_key[k_length*3:k_length*4]
+        k_part_length = int(len(k3) / 4)
 
+        k3_parts = [k3[k_part_length:k_part_length*2],
+                    k3[k_part_length*2:k_part_length*3], k3[k_part_length*3:k_part_length*4], k3[0:k_part_length]]
+        for i, part in enumerate(k3_parts):
+            k3_parts[i] = S[int(part, 16)]
 
-def reverse_key_expension(expended_key: List[Word], rounds: int) -> List[Word]:
-    for r in reversed(range(1, rounds)):
-        for _ in range(3):
-            expended_key.insert(0, xor(expended_key[2], expended_key[3]))
-        rot = _rot_word(expended_key[2])
-        sub = _sub_word(rot)
-        xored = xor(expended_key[3], _r_con(r))
-        first_column = xor(xored, sub)
-        expended_key.insert(0, first_column)
-    return expended_key
+        ri = self.get_round_constant()
+        k3_parts[0] ^= ri
+        k3_assembled = ''
+        for part in k3_parts:
+            k3_assembled += '{:02x}'.format(part)
+        k3_assembled = int(k3_assembled, 16)
+        k0 = k0 ^ k3_assembled
+        k1 = k0 ^ k1
+        k2 = k1 ^ k2
+        k3 = int(k3, 16)
+        k3 = k2 ^ k3
 
-
-def _rot_word(word: Word) -> Word:
-    if len(word) != 4:
-        raise ValueError(f"Wrong word length: {len(word)}")
-    return word[1:] + bytes([word[0]])
-
-
-def _sub_word(word: Word) -> Word:
-    if len(word) != 4:
-        raise ValueError(f"Wrong word length: {len(word)}")
-    return bytes([S_BOX[b] for b in word])
-
-
-def _r_con(n: int) -> Word:
-    if not 0 <= n < 256:
-        raise ValueError(f"Wrong n: {n}")
-    return bytes([KEY_SCHEDULER_LOOKUP_TABLE[n], 0, 0, 0])
-
-
-key = binascii.unhexlify("000102030405060708090a0b0c0d0e0f")
-words = key_expension(key, 2)
-new_key = b"".join(words)
-print(new_key.hex())
+        new_key = '{:02x}'.format(
+            k0) + '{:02x}'.format(k1) + '{:02x}'.format(k2) + '{:02x}'.format(k3)
+        print(new_key)
+        self.keys.append(new_key)
+        new_key_mat = []
+        for i in range(16):
+            new_key_mat.append([int(new_key[i * 2:i * 2 + 2], 16)])
+        new_key_mat = np.array(new_key_mat)
+        new_key_mat = np.reshape(new_key_mat, (4, 4))
+        return new_key_mat
