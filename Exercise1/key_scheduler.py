@@ -18,6 +18,15 @@ class KeyScheduler:
         self.rc.append(rc)
         return rc
 
+    def to_matrix(self, key_string):
+        new_key_mat = []
+        for i in range(16):
+            new_key_mat.append([int(key_string[i * 2:i * 2 + 2], 16)])
+        new_key_mat = np.array(new_key_mat)
+        new_key_mat = np.reshape(new_key_mat, (4, 4))
+        new_key_mat = new_key_mat.T
+        return new_key_mat
+
     def get_next_key(self):
         latest_key = self.keys[-1]
         key_length = len(latest_key)
@@ -45,13 +54,7 @@ class KeyScheduler:
         k3 = int(k3, 16)
         k3 = k2 ^ k3
 
-        new_key = '{:02x}'.format(
-            k0) + '{:02x}'.format(k1) + '{:02x}'.format(k2) + '{:02x}'.format(k3)
-        print(new_key)
+        new_key = '{:08x}'.format(
+            k0) + '{:08x}'.format(k1) + '{:08x}'.format(k2) + '{:08x}'.format(k3)
         self.keys.append(new_key)
-        new_key_mat = []
-        for i in range(16):
-            new_key_mat.append([int(new_key[i * 2:i * 2 + 2], 16)])
-        new_key_mat = np.array(new_key_mat)
-        new_key_mat = np.reshape(new_key_mat, (4, 4))
-        return new_key_mat
+        return self.to_matrix(new_key)
